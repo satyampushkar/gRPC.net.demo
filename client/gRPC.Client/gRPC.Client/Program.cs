@@ -14,47 +14,61 @@ namespace gRPC.Client
         {
             using var channel = GrpcChannel.ForAddress("https://localhost:5001");
             var client = new StockService.StockServiceClient(channel);
+            Metadata headers = await FetchAuthenticationToken(client);
 
             while (true)
             {
-                Console.ForegroundColor = ConsoleColor.DarkGreen;
-                Console.WriteLine("******************************************");
-                Console.WriteLine("Press 1 for GetStockListings");
-                Console.WriteLine("Press 2 for GetStockPrice");
-                Console.WriteLine("Press 3 for GetStockPriceStream");
-                Console.WriteLine("Press 4 for GetCompanyStockPriceStream");
-                Console.WriteLine("Press 5 for Exit from app");
-                Console.WriteLine("******************************************");
-                Console.ResetColor();
-                var input = Console.ReadLine();
-                switch (input)
+                try
                 {
-                    case "1":
-                        GetStockListings(client);
-                        break;
-                    case "2":
-                        GetStockPrice(client);
-                        break;
-                    case "3":
-                        await GetStockPriceStream(client);
-                        break;
-                    case "4":
-                        await GetCompanyStockPriceStream(client);
-                        break;
-                    case "5":
-                        Environment.Exit(0);
-                        break;
-                    default:
-                        break;
+                    Console.ForegroundColor = ConsoleColor.DarkGreen;
+                    Console.WriteLine("******************************************");
+                    Console.WriteLine("Press 1 for GetStockListings");
+                    Console.WriteLine("Press 2 for GetStockPrice");
+                    Console.WriteLine("Press 3 for GetStockPriceStream");
+                    Console.WriteLine("Press 4 for GetCompanyStockPriceStream");
+                    Console.WriteLine("Press 5 for Exit from app");
+                    Console.WriteLine("******************************************");
+                    Console.ResetColor();
+                    var input = Console.ReadLine();
+                    switch (input)
+                    {
+                        case "1":
+                            await GetStockListings(client, headers);
+                            break;
+                        case "2":
+                            await GetStockPrice(client, headers);
+                            break;
+                        case "3":
+                            await GetStockPriceStream(client, headers);
+                            break;
+                        case "4":
+                            await GetCompanyStockPriceStream(client, headers);
+                            break;
+                        case "5":
+                            Environment.Exit(0);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                catch (RpcException ex) when (ex.StatusCode == StatusCode.Unauthenticated)
+                {
+                    //Assuming token expired, renewing..
+                    Console.WriteLine("Token rejected.");
+                    headers = await FetchAuthenticationToken(client);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Error in app: " + ex);
                 }
             }
         }
 
-        private static async Task GetCompanyStockPriceStream(StockService.StockServiceClient client)
+        private static async Task GetCompanyStockPriceStream(StockService.StockServiceClient client, Metadata headers)
         {
             //To get all stock Ids
             //var stocks = client.GetStockListings(new Empty()).Stocks; 
-            using var streamingCall = client.GetCompanyStockPriceStream();
+            using var streamingCall = client.GetCompanyStockPriceStream(headers: headers);
 
             // background task which uses async streams to read each stockPrice from the response steam.
             _ = Task.Run(async () =>
@@ -94,11 +108,11 @@ namespace gRPC.Client
             Console.WriteLine("Request stream completed");
         }
 
-        private static async Task GetStockPriceStream(StockService.StockServiceClient client)
+        private static async Task GetStockPriceStream(StockService.StockServiceClient client, Metadata headers)
         {
             var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
-            using var streamingCall = client.GetStockPriceStream(new Empty(), cancellationToken: cts.Token);
+            using var streamingCall = client.GetStockPriceStream(new Empty(), cancellationToken: cts.Token, headers: headers);
             try
             {
                 Console.WriteLine(string.Format($"Stock Id\t Stock Name\t Stock Price\t TimeStamp"));
@@ -117,22 +131,28 @@ namespace gRPC.Client
             }
         }
 
-        private static void GetStockPrice(StockService.StockServiceClient client)
+        private static async Task GetStockPrice(StockService.StockServiceClient client, Metadata headers)
         {
-            var result = client.GetStockPrice(new Stock { StockId = "FB" });
+            var result = await client.GetStockPriceAsync(new Stock { StockId = "FB" }, headers: headers);
             Console.WriteLine($"Stock Id: {result.Stock.StockId}\n Stock Name: {result.Stock.StockName}\n " +
                 $"Stock Price: {result.Price}\n TimeStamp: {result.DateTimeStamp}");
         }
 
-        private static StockListing GetStockListings(StockService.StockServiceClient client)
+        private static async Task GetStockListings(StockService.StockServiceClient client, Metadata headers)
         {
-            var result = client.GetStockListings(new Empty());
+            var result = await client.GetStockListingsAsync(new Empty(), headers: headers);
             foreach (var stock in result.Stocks)
             {
                 Console.WriteLine($"{stock.StockId}\t{stock.StockName}");
             }
+        }
 
-            return result;
+        private static async Task<Metadata> FetchAuthenticationToken(StockService.StockServiceClient client)
+        {
+            var authToken = await client.AuthenticateAsync(new ClientCred { ClientId = "clientId1", ClientSecret = "secret1" });
+            var headers = new Metadata();
+            headers.Add("Authorization", string.Format($"Bearer {authToken.BearerToken}"));
+            return headers;
         }
     }
 }

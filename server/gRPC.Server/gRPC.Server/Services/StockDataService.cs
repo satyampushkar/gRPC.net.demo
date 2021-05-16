@@ -5,14 +5,18 @@ using System.Threading.Channels;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using gRPC.net.demo.stockDetails;
+using gRPC.Server.Authentication;
 using Grpc.Core;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 
 namespace gRPC.Server.Services
 {
+    [Authorize]
     public class StockDataService : StockService.StockServiceBase
     {
         private readonly ILogger<StockDataService> _logger;
+        private readonly IJWTAuthenticationManager _jWTAuthenticationManager;
 
         private static readonly List<Stock> _stocks = new List<Stock> 
         {
@@ -25,9 +29,10 @@ namespace gRPC.Server.Services
             {new Stock {StockId = "GOOG", StockName = "Alphabet"} }
         }; 
 
-        public StockDataService(ILogger<StockDataService> logger)
+        public StockDataService(ILogger<StockDataService> logger, IJWTAuthenticationManager jWTAuthenticationManager)
         {
             _logger = logger;
+            _jWTAuthenticationManager = jWTAuthenticationManager;
         }
 
         public override Task<StockListing> GetStockListings(Empty request, ServerCallContext context)
@@ -132,6 +137,17 @@ namespace gRPC.Server.Services
                     await Task.Delay(500);
                 }
             }
+        }
+
+        [AllowAnonymous]
+        public override Task<AuthResponse> Authenticate(ClientCred request, ServerCallContext context)
+        {
+            var token = _jWTAuthenticationManager.Authenticate(request.ClientId, request.ClientSecret);
+
+            if (token == null)
+                return null;
+
+            return Task.FromResult(new AuthResponse { BearerToken = token });
         }
     }
 }
