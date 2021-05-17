@@ -5,6 +5,7 @@ using Google.Protobuf.WellKnownTypes;
 using gRPC.net.demo.stockDetails;
 using System.Threading;
 using Grpc.Core;
+using Grpc.Health.V1;
 
 namespace gRPC.Client
 {
@@ -22,11 +23,12 @@ namespace gRPC.Client
                 {
                     Console.ForegroundColor = ConsoleColor.DarkGreen;
                     Console.WriteLine("******************************************");
-                    Console.WriteLine("Press 1 for GetStockListings");
-                    Console.WriteLine("Press 2 for GetStockPrice");
-                    Console.WriteLine("Press 3 for GetStockPriceStream");
-                    Console.WriteLine("Press 4 for GetCompanyStockPriceStream");
-                    Console.WriteLine("Press 5 for Exit from app");
+                    Console.WriteLine("Press 1 to GetStockListings");
+                    Console.WriteLine("Press 2 to GetStockPrice");
+                    Console.WriteLine("Press 3 to GetStockPriceStream");
+                    Console.WriteLine("Press 4 to GetCompanyStockPriceStream");
+                    Console.WriteLine("Press 5 to check service health");
+                    Console.WriteLine("Press 6 to Exit from app");
                     Console.WriteLine("******************************************");
                     Console.ResetColor();
                     var input = Console.ReadLine();
@@ -45,6 +47,9 @@ namespace gRPC.Client
                             await GetCompanyStockPriceStream(client, headers);
                             break;
                         case "5":
+                            await CheckServiceHealth(channel);
+                            break;
+                        case "6":
                             Environment.Exit(0);
                             break;
                         default:
@@ -54,7 +59,7 @@ namespace gRPC.Client
                 catch (RpcException ex) when (ex.StatusCode == StatusCode.Unauthenticated)
                 {
                     //Assuming token expired, renewing..
-                    Console.WriteLine("Token rejected.");
+                    Console.WriteLine("Token expired/rejected. Fetching latest...");
                     headers = await FetchAuthenticationToken(client);
                 }
                 catch (Exception ex)
@@ -62,6 +67,15 @@ namespace gRPC.Client
                     Console.WriteLine("Error in app: " + ex);
                 }
             }
+        }
+
+        private static async Task CheckServiceHealth(GrpcChannel channel)
+        {
+            var healthClient = new Health.HealthClient(channel);
+
+            var health = await healthClient.CheckAsync(new HealthCheckRequest { Service = "StockDataService" });
+
+            Console.WriteLine($"Health Status: {health.Status}");
         }
 
         private static async Task GetCompanyStockPriceStream(StockService.StockServiceClient client, Metadata headers)

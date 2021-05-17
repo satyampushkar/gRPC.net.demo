@@ -6,12 +6,15 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Grpc.HealthCheck;
+using gRPC.Server.BackgroundServices;
 
 namespace gRPC.Server
 {
@@ -44,6 +47,12 @@ namespace gRPC.Server
             services.AddAuthorization();
 
             services.AddSingleton<IJWTAuthenticationManager>(new JWTAuthenticationManager(tokenKey));
+
+            // Simple healthcheck by calling "/health" endpoint
+            services.AddHealthChecks();
+            //using "HealthServiceImpl : Health.V1.Health.HealthBase"
+            services.AddSingleton<HealthServiceImpl>();
+            services.AddHostedService<ServingStatusUpdateService>();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -63,6 +72,11 @@ namespace gRPC.Server
 
             app.UseEndpoints(endpoints =>
             {
+                // Simple healthcheck by calling "/health" endpoint
+                endpoints.MapHealthChecks("/health");
+                //mapping "HealthServiceImpl : Health.V1.Health.HealthBase"
+                endpoints.MapGrpcService<HealthServiceImpl>();
+
                 endpoints.MapGrpcService<StockDataService>();
 
                 endpoints.MapGet("/", async context =>
