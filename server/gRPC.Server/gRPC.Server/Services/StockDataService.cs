@@ -73,6 +73,31 @@ namespace gRPC.Server.Services
             }
         }
 
+        public override async Task<StocksPrices> GetStocksPrices(IAsyncStreamReader<Stock> requestStream, ServerCallContext context)
+        {
+            var rnd = new Random(100);
+            var inputStocksList = new List<Stock>();
+            await foreach (var request in requestStream.ReadAllAsync())
+            {
+                inputStocksList.Add(request);
+                _logger.LogInformation($"Getting stock Price for {request.StockName}({request.StockId})");
+            }
+
+            var response = new StocksPrices();
+            foreach (var inputStock in inputStocksList)
+            {
+                response.StockPriceList.Add(
+                    new StockPrice
+                    {
+                        Stock = inputStock,
+                        DateTimeStamp = DateTime.UtcNow.ToTimestamp(),
+                        Price = rnd.Next(100, 500).ToString()
+                    });
+            }
+
+            return response;
+        }
+
         public override async Task GetCompanyStockPriceStream(IAsyncStreamReader<Stock> requestStream, IServerStreamWriter<StockPrice> responseStream, ServerCallContext context)
         {
             // we'll use a channel here to handle in-process 'messages' concurrently being written to and read from the channel.

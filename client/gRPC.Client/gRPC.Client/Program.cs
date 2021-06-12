@@ -26,9 +26,10 @@ namespace gRPC.Client
                     Console.WriteLine("Press 1 to GetStockListings");
                     Console.WriteLine("Press 2 to GetStockPrice");
                     Console.WriteLine("Press 3 to GetStockPriceStream");
-                    Console.WriteLine("Press 4 to GetCompanyStockPriceStream");
-                    Console.WriteLine("Press 5 to check service health");
-                    Console.WriteLine("Press 6 to Exit from app");
+                    Console.WriteLine("Press 4 to GetStocksPrices");
+                    Console.WriteLine("Press 5 to GetCompanyStockPriceStream");
+                    Console.WriteLine("Press 6 to check service health");
+                    Console.WriteLine("Press 7 to Exit from app");
                     Console.WriteLine("******************************************");
                     Console.ResetColor();
                     var input = Console.ReadLine();
@@ -44,12 +45,15 @@ namespace gRPC.Client
                             await GetStockPriceStream(client, headers);
                             break;
                         case "4":
-                            await GetCompanyStockPriceStream(client, headers);
+                            await GetStocksPrices(client, headers);
                             break;
                         case "5":
-                            await CheckServiceHealth(channel);
+                            await GetCompanyStockPriceStream(client, headers);
                             break;
                         case "6":
+                            await CheckServiceHealth(channel);
+                            break;
+                        case "7":
                             Environment.Exit(0);
                             break;
                         default:
@@ -69,15 +73,72 @@ namespace gRPC.Client
             }
         }
 
-        private static async Task CheckServiceHealth(GrpcChannel channel)
+        private static async Task GetStockListings(StockService.StockServiceClient client, Metadata headers)
         {
-            var healthClient = new Health.HealthClient(channel);
-
-            var health = await healthClient.CheckAsync(new HealthCheckRequest { Service = "StockDataService" });
-
-            Console.WriteLine($"Health Status: {health.Status}");
+            var result = await client.GetStockListingsAsync(new Empty(), headers: headers);
+            foreach (var stock in result.Stocks)
+            {
+                Console.WriteLine($"{stock.StockId}\t{stock.StockName}");
+            }
         }
 
+        private static async Task GetStockPrice(StockService.StockServiceClient client, Metadata headers)
+        {
+            var result = await client.GetStockPriceAsync(new Stock { StockId = "FB" }, headers: headers);
+            Console.WriteLine($"Stock Id: {result.Stock.StockId}\n Stock Name: {result.Stock.StockName}\n " +
+                $"Stock Price: {result.Price}\n TimeStamp: {result.DateTimeStamp}");
+        }
+
+        private static async Task GetStockPriceStream(StockService.StockServiceClient client, Metadata headers)
+        {
+            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+            using var streamingCall = client.GetStockPriceStream(new Empty(), cancellationToken: cts.Token, headers: headers);
+            try
+            {
+                Console.WriteLine(string.Format($"Stock Id\t Stock Name\t Stock Price\t TimeStamp"));
+                await foreach (var stockPrice in streamingCall.ResponseStream.ReadAllAsync(cancellationToken: cts.Token))
+                {
+                    Console.WriteLine(string.Format($"{stockPrice.Stock.StockId}\t {stockPrice.Stock.StockName}\t {stockPrice.Price}\t {stockPrice.DateTimeStamp}"));
+                }
+            }
+            catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+            {
+                Console.WriteLine("Stream cancelled.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error reading response: " + ex);
+            }
+        }
+
+        private static async Task GetStocksPrices(StockService.StockServiceClient client, Metadata headers)
+        {
+            using var streamingCall = client.GetStocksPrices(headers: headers);
+
+            //send requests through requst stream
+            foreach (var stockId in new[] { "FB", "AAPL", "AMZN", "MSFT", "GOOG" })
+            {
+                Console.WriteLine($"Requesting details for {stockId}...");
+
+                await streamingCall.RequestStream.WriteAsync(new Stock { StockId = stockId });
+
+                //Mimicing delay in sending request
+                await Task.Delay(1500);
+            }
+
+            Console.WriteLine("Completing request stream");
+            await streamingCall.RequestStream.CompleteAsync();
+            Console.WriteLine("Request stream completed");
+
+            var response = await streamingCall;
+            foreach (var stockPrice in response.StockPriceList)
+            {
+                Console.WriteLine(string.Format($"{stockPrice.Stock.StockId}\t {stockPrice.Stock.StockName}\t {stockPrice.Price}\t {stockPrice.DateTimeStamp}"));
+            }
+            Console.WriteLine();
+        }
+                
         private static async Task GetCompanyStockPriceStream(StockService.StockServiceClient client, Metadata headers)
         {
             //To get all stock Ids
@@ -122,43 +183,13 @@ namespace gRPC.Client
             Console.WriteLine("Request stream completed");
         }
 
-        private static async Task GetStockPriceStream(StockService.StockServiceClient client, Metadata headers)
+        private static async Task CheckServiceHealth(GrpcChannel channel)
         {
-            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var healthClient = new Health.HealthClient(channel);
 
-            using var streamingCall = client.GetStockPriceStream(new Empty(), cancellationToken: cts.Token, headers: headers);
-            try
-            {
-                Console.WriteLine(string.Format($"Stock Id\t Stock Name\t Stock Price\t TimeStamp"));
-                await foreach (var stockPrice in streamingCall.ResponseStream.ReadAllAsync(cancellationToken: cts.Token))
-                {
-                    Console.WriteLine(string.Format($"{stockPrice.Stock.StockId}\t {stockPrice.Stock.StockName}\t {stockPrice.Price}\t {stockPrice.DateTimeStamp}"));
-                }
-            }
-            catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
-            {
-                Console.WriteLine("Stream cancelled.");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Error reading response: " + ex);
-            }
-        }
+            var health = await healthClient.CheckAsync(new HealthCheckRequest { Service = "StockDataService" });
 
-        private static async Task GetStockPrice(StockService.StockServiceClient client, Metadata headers)
-        {
-            var result = await client.GetStockPriceAsync(new Stock { StockId = "FB" }, headers: headers);
-            Console.WriteLine($"Stock Id: {result.Stock.StockId}\n Stock Name: {result.Stock.StockName}\n " +
-                $"Stock Price: {result.Price}\n TimeStamp: {result.DateTimeStamp}");
-        }
-
-        private static async Task GetStockListings(StockService.StockServiceClient client, Metadata headers)
-        {
-            var result = await client.GetStockListingsAsync(new Empty(), headers: headers);
-            foreach (var stock in result.Stocks)
-            {
-                Console.WriteLine($"{stock.StockId}\t{stock.StockName}");
-            }
+            Console.WriteLine($"Health Status: {health.Status}");
         }
 
         private static async Task<Metadata> FetchAuthenticationToken(StockService.StockServiceClient client)

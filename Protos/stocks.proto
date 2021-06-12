@@ -11,6 +11,7 @@ service StockService {
     rpc GetStockListings (google.protobuf.Empty) returns (StockListing);
 	rpc GetStockPrice (Stock) returns (StockPrice);
 	rpc GetStockPriceStream (google.protobuf.Empty) returns (stream StockPrice);
+	rpc GetStocksPrices (stream Stock) returns (StocksPrices);
 	rpc GetCompanyStockPriceStream (stream Stock) returns (stream StockPrice);
 }
 
@@ -41,4 +42,9 @@ message StockPrice
     Stock stock = 1;
 	string price = 2;
     google.protobuf.Timestamp dateTimeStamp = 3;
+}
+
+message StocksPrices
+{
+	repeated StockPrice stockPriceList = 1;
 }
